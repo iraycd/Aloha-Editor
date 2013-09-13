@@ -12,14 +12,26 @@
 
 	module('editing');
 
+	var $editable = $('<div id="editable" contentEditable="true"></div>');
+
 	function runTest(before, after, op) {
 		var dom = $(before)[0];
+		$editable.html('').append(dom);
 		var range = ranges.create();
 		boundarymarkers.extract(dom, range);
 		op(range);
 		boundarymarkers.insert(range);
-		equal(dom.outerHTML, after, before + ' ⇒ ' + after);
+		equal($editable.html(), after, before + ' ⇒ ' + after);
 	}
+
+	test('merge()', function () {
+		t('<p>foo</p><p>bar</p>', '<p>foobar</p>');
+		t('<b>foo</b><b>bar</b>', '<b>foobar</b>');
+		t('<b>foo</b><i>bar</i>', '<b>foo</b><i>bar</i>');
+		t('<b>foo</b><p>bar</p>', '<b>foo</b>bar');
+
+		t('<b>foo</b><p><b>bar</b></p>', '<b>foo</b><span>bar</span>');
+	});
 
 	test('remove()', function () {
 		tested.push('remove');
@@ -27,10 +39,14 @@
 			return runTest(before, after, editing.remove);
 		};
 
+		t('<p>x[y]z</p>', '<p>x[]z</p>');
+
+		return;
+
+		t('<div><p>x</p><p>{y</p><p>}z</p></div>', '<div><p>x</p><p>{}z</p></div>');
 		t('<p>x[]y</p>', '<p>x[]y</p>');
 		t('<p><b>x</b>{}<i>y</i></p>', '<p><b>x</b>{}<i>y</i></p>');
 
-		t('<p>x[y]z</p>', '<p>x[]z</p>');
 
 		t('<p>[x]</p>', '<p>{}</p>');
 
@@ -81,20 +97,15 @@
 		t('<div>w<p>{x<b>y]z</b></p></div>', '<div>w<p>{}<b>z</b></p></div>');
 		t('<div>w<p>[x<b>y]z</b></p></div>', '<div>w<p>{}<b>z</b></p></div>');
 
-		/*
-		// inside nested empty node
 		t('<p>x<u><b>{</b></u>x<i>}</i>y</p>', '<p>x[]y</p>');
-		t('<p><span>x{<b>1</b><i>2</i></span>y<span><u>3</u>y</span></p>',
-		  '<p><span>x{'); 
-		*/
 
 		t('<p>1<b>{2</b>3<u>4</u>]5<i>6</i></p>', '<p>1[]5<i>6</i></p>');
-		t('<div><p>1<b>{2</b>3<u>4</u>5<i>]6</i></p></div>', '<div><p>1{}<i>6</i></p></div>');
-		t('<div><p><b>1[2</b><u>3]4</u></p></div>',          '<div><p><b>1{}</b><u>4</u></p></div>');
-		t('<div><p><b>1[2</b><u>3}<b>4</b></u></p></div>',   '<div><p><b>1{}</b><u><b>4</b></u></p></div>');
-		t('<div><p><i><b>1[2</b></i><u>3]4</u></p></div>',   '<div><p><i><b>1{}</b></i><u>4</u></p></div>');
+		t('<p>1<b>{2</b>3<u>4</u>5<i>]6</i></p>', '<p>1{}<i>6</i></p>');
+		t('<p><b>1[2</b><u>3]4</u></p>',          '<p><b>1{}</b><u>4</u></p>');
+		t('<p><b>1[2</b><u>3}<b>4</b></u></p>',   '<p><b>1{}</b><u><b>4</b></u></p>');
+		t('<p><i><b>1[2</b></i><u>3]4</u></p>',   '<p><i><b>1{}</b></i><u>4</u></p>');
 
-		//t('<div>x<b>fo[o</b>bar<u>b]az</u>y</div>', '<div>x<b>fo</b><u>az</u>y</div>');
+		t('<p>x<b>fo[o</b>bar<u>b]az</u>y</p>', '<p>x<b>fo{}</b><u>az</u>y</p>');
 	});
 
 	function switchElemTextSelection(html) {

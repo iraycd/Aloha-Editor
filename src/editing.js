@@ -1014,6 +1014,8 @@ define([
 			mutate(range, formatter);
 			return formatter;
 		});
+
+		return liveRange;
 	}
 
 	/**
@@ -1072,6 +1074,8 @@ define([
 			mutate(range, formatter);
 			return formatter;
 		});
+
+		return liveRange;
 	}
 
 	/**
@@ -1229,11 +1233,14 @@ define([
 			splitRangeAtBoundaries(range, left, right, opts);
 			return null;
 		});
+
+		return liveRange;
 	}
 
-	function joinBoundaries(range) {
-		console.log(range);
-		//debugger;
+	function isOnlyChild(node) {
+		return node.parentNode
+		    && node === node.parentNode.firstChild
+		    && node === node.parentNode.lastChild;
 	}
 
 	function removeNodesUntil(range, node, until, step) {
@@ -1281,10 +1288,97 @@ define([
 				  point.node;
 		}
 		var family = traversing.childAndParentsUntilInclNode(child, limit);
-		(window._ || (window._ = [])).push(family);
 		return function (node) {
 			return arrays.contains(family, node);
 		};
+	}
+
+	var isRenderedNode = fn.complement(html.isUnrenderedNode);
+
+	function hasRenderedChildNode(node) {
+		return isRenderedNode(
+			traversing.nextWhile(node.firstChild, html.isUnrenderedNode)
+		);
+	}
+
+	//
+	// <p>foo</p>
+	// <div>
+	// 		<b>bar</b>
+	// 		<p>buz</p>
+	// </div>
+	//
+	function joinRangeContainers(range) {
+		if (range.collapsed) {
+			return range;
+		}
+
+		var common = range.commonAncestorContainer;
+		var start = range.startContainer;
+		var end = range.endContainer;
+
+		if (!html.isVisuallyAdjacent(start, end)) {
+			console.error('Cannot merge non-adjacent containers');
+			return range;
+		}
+
+		var right;
+		var insert = (function (node, limit) {
+			var prev;
+			while (node !== limit) {
+				if (html.isBlockType(node)) {
+					right = getNextNonAncestor(node, function (node) {
+						return node === limit;
+					});
+					right = traversing.findForward(right, isRenderedNode);
+					return function (elem) {
+						dom.insert(elem, node, true);
+						return true;
+					};
+				}
+				prev = node;
+				node = node.parentNode;
+			}
+			node = getNextNonAncestor(prev, function (node) {
+				return node === limit;
+			});
+			right = traversing.findForward(node, isRenderedNode);
+			return function (elem) {
+				if (elem === node) {
+					return false;
+				}
+				dom.insert(elem, node);
+				return true;
+			};
+		}(start, common));
+
+		var next;
+		var parent;
+		var node = right;
+		while (node) {
+			if (html.isBlockType(node)) {
+				node = traversing.findForward(node.firstChild, isRenderedNode);
+			} else {
+				parent = node.parentNode;
+				while (node && html.isInlineType(node)) {
+					next = node.nextSibling;
+					if (!insert(node)) {
+						break;
+					}
+					node = next;
+				}
+				while (!hasRenderedChildNode(parent)) {
+					node = parent;
+					parent = node.parentNode;
+					dom.remove(node);
+				}
+				break;
+			}
+		}
+
+		ranges.collapseToStart(range);
+
+		return range;
 	}
 
 	// We could not just use split() becuase it would not be able to split
@@ -1324,8 +1418,8 @@ define([
 		fixupRange(range, function (range, left, right) {
 			// Because after splitRangeAtBoundaries():
 			// x<p>{y}</p>z becomes x{<p>y</p>}z
-			// we therefore have to determine the left and right deletion
-			// terminal nodes before hand.
+			// we have to determine the left and right deletion terminal nodes
+			// before hand...
 
 			var inLeftHierarchy = createHierarchyChecker(
 				left,
@@ -1340,14 +1434,30 @@ define([
 			);
 
 			var leftNode = left.atEnd
-			             // <p>...{</p>
+
+			             //          leftNode
+						 //             |
+						 //             v
+			             // <p>...{</p><b>...
 			             ? getNextNonAncestor(left.node, inRightHierarchy)
+
+			             // leftNode
+						 //   |
+						 //   v
 			             // {<p>...</p>
 			             : left.node;
 
 			var rightNode = (right.atEnd && right.node.lastChild)
-			              // <p>...}</p>
+
+			              //      rightNode
+						  //         |
+						  //         v
+			              // <p>...</b>}</p>
 			              ? right.node.lastChild
+
+			              //  rightNode   rightNode
+						  //     |           |
+						  //     v           v
 			              // ...<p>}</p> or <p>...}...</p>
 			              : getPreviousNonAncestor(right.node, inLeftHierarchy);
 
@@ -1356,7 +1466,7 @@ define([
 			cursors.setToRange(range, left, right);
 
 			// Because splitRangeAtBoundaries() may have obsoleted the previous
-			// hierarchies
+			// hierarchies.
 
 			inLeftHierarchy = createHierarchyChecker(
 				left,
@@ -1374,6 +1484,8 @@ define([
 			removeNodesUntil(range, rightNode, inLeftHierarchy, getPreviousNonAncestor);
 
 			ranges.contract(range);
+
+			joinRangeContainers(range)
 
 			left.setFrom(cursors.createFromBoundary(
 				range.startContainer,
@@ -1403,7 +1515,8 @@ define([
 		wrap   : wrapElem,
 		format : format,
 		split  : split,
-		remove : remove
+		remove : remove,
+		joinRangeContainers: joinRangeContainers
 	};
 
 	exports['wrap'] = exports.wrap;
